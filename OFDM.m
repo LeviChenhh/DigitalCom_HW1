@@ -1,8 +1,7 @@
-% OFDM Code
-% Author: Ihsan Ullah, 
-%         Ms-55 Electrical,
-%         College of EME, 
-%         NUST Pakistan
+% Digital Communication Integrated Circuit Design 
+% Homework 1: BasedBand MIMO-OFDM Transmitter Design
+% Author: Chung-Yuan Lan
+
 % No.of Carriers: 64
 % coding used: Convolutional coding
 % Single frame size: 96 bits
@@ -33,8 +32,9 @@ j=s1/k;
 
 %%
 % Convolutionally encoding data 
-constlen=7;
-codegen = [171 133];    % Polynomial
+%data=[0 1 1 ]
+constlen=3;
+codegen= [5 7]; %g1=[1 0 1] g2=[1 1 1]
 trellis = poly2trellis(constlen, codegen);
 codedata = convenc(data, trellis);
 
