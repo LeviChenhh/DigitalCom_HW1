@@ -1,0 +1,144 @@
+% By Alger 2007 
+% 2Tx+1Rx SFBC+OFDM system in Rayleigh fading channel using Jakes' model 
+%% Initialing 
+%function [BER_ZF, BER_JML, BER_ZF_new, BER_JML_new] = SFBC(SNRindB, fm, d, M) 
+clear;SNRindB = 0;fm = 0;d = 1;M = 12; clc
+ 
+% OFDM parameters 
+fs = 1.92*10^6;                                      % sampling rate/Bandwidth 
+Ncarr =128;                                      % number of subcarriers 
+GIlen = 160;                                      % length of OFDM symbol plus cyclic prefix 
+CPlen = GIlen - Ncarr;                            % length of cyclic prefix 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%    Channel source     %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% generate infomation bits   
+X_info = randi([0 1],1,Ncarr);
+
+constlen=3;
+gen= [5 7]; %g1=[1 0 1] g2=[1 1 1]
+trellis = poly2trellis(constlen, gen);
+X_code = convenc(X_info, trellis);
+% binary bits 
+%X_send = 2*X_info - 1;                            % BPSK modulation 
+M=16;
+X_send = qammod(X_code,M)*1/(10^0.5);  %16-QAM
+ 
+% separate the sent bits to 2 branches 
+X_send1(1:2:Ncarr) =       X_send(1:2:Ncarr) ;    % transmitter1 
+X_send1(2:2:Ncarr) = -conj(X_send(2:2:Ncarr));    % [X1, -conj(X2)] 
+ 
+X_send2(1:2:Ncarr) =       X_send(2:2:Ncarr) ;    % transmitter2 
+X_send2(2:2:Ncarr) =  conj(X_send(1:2:Ncarr));    % [X2,  conj(X1)] 
+ 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%         IFFT          %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% ifft with length Slen 
+z_ifft1 = sqrt(Ncarr)*ifft(X_send1,Ncarr);        % sqrt(Ncarr) should be mutiplied to maintain the Power 
+z_ifft2 = sqrt(Ncarr)*ifft(X_send2,Ncarr);        % sqrt(Ncarr) should be mutiplied to maintain the Power 
+ 
+% adding cyclic prefix 
+Z_ofdm1 = [z_ifft1(Ncarr-CPlen+1:Ncarr) z_ifft1]; % final OFDM sampled signals with CP 
+Z_ofdm2 = [z_ifft2(Ncarr-CPlen+1:Ncarr) z_ifft2]; % final OFDM sampled signals with CP 
+ %{
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%        channel        %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% generate random channel matrix "h" with rayleigh distribution and Doppler shift by Jakes' model 
+h1 = ones(M , GIlen+M);                           % channel matrix 
+h2 = ones(M , GIlen+M);                           % channel matrix 
+r = zeros(1 , GIlen+M);                           % received signal 
+ 
+% multi paths channel following exponential delay model 
+TapGain = sqrt( (1-exp(-1/d)) / (1-exp(-M/d)) / 2 ); 
+for i = 1:M 
+    h1( i , i:(i-1+GIlen) ) = jakes(GIlen,fm,fs); 
+    h1(i,:) = TapGain * h1(i,:); 
+    h2( i , i:(i-1+GIlen) ) = jakes(GIlen,fm,fs); 
+    h2(i,:) = TapGain * h2(i,:); 
+    r = r + h1(i,:).*[ones(1,i-1) Z_ofdm1 ones(1,M-i+1)] + h2(i,:).*[ones(1,i-1) Z_ofdm2 ones(1,M-i+1)]; 
+    TapGain = TapGain * exp(-1/d/2);  
+end 
+ 
+R = awgn(r,SNRindB);                             % AWGN 
+%R = r; 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%         IFFT          %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% reduce the cyclic prefix 
+y_fft = R(1+CPlen:GIlen); 
+ 
+% fft 
+z_fft = fft(y_fft,Ncarr)/sqrt(Ncarr);             % 1/sqrt(Ncarr) should be multiplied 
+ 
+% separate the signals on odd and even subcarriers 
+X_odd  = z_fft(1:2:Ncarr);                        % R1 =  h11*     X1 + h21*     X2 
+X_even = z_fft(2:2:Ncarr);                        % R2 = -h12*conj(X2)+ h22*conj(X1) 
+ 
+% Calculate the frequecy domain response 
+% | C A | 
+% | B C | 
+h_est1 = sum(h1(:,CPlen+1:CPlen+Ncarr),2)/Ncarr; 
+C1 = fft([h_est1;  zeros(Ncarr-M,1)]); 
+h_est1 = h1(:,CPlen+1:CPlen+Ncarr) * exp( sqrt(-1)*2*pi*(0:127).'/Ncarr) /Ncarr; 
+A1 = fft([h_est1;  zeros(Ncarr-M,1)]); 
+h_est1 = h1(:,CPlen+1:CPlen+Ncarr) * exp(-sqrt(-1)*2*pi*(0:127).'/Ncarr) /Ncarr; 
+B1 = fft([h_est1;  zeros(Ncarr-M,1)]); 
+ 
+h_est2 = sum(h2(:,CPlen+1:CPlen+Ncarr),2)/Ncarr; 
+C2 = fft([h_est2;  zeros(Ncarr-M,1)]); 
+h_est2 = h2(:,CPlen+1:CPlen+Ncarr) * exp( sqrt(-1)*2*pi*(0:127).'/Ncarr) /Ncarr; 
+A2 = fft([h_est2;  zeros(Ncarr-M,1)]); 
+h_est2 = h2(:,CPlen+1:CPlen+Ncarr) * exp(-sqrt(-1)*2*pi*(0:127).'/Ncarr) /Ncarr; 
+B2 = fft([h_est2;  zeros(Ncarr-M,1)]); 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%% Conventional detection %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+H11_1 = C1(1:2:Ncarr);H21_1 = C2(1:2:Ncarr);      % R1 =  h11*     X1 + h21*     X2 
+H12_1 = C1(2:2:Ncarr);H22_1 = C2(2:2:Ncarr);      % R2 = -h12*conj(X2)+ h22*conj(X1) 
+ 
+X_receive_11 = ZF_decode(H11_1, H12_1, H21_1, H22_1, X_odd, X_even, Ncarr); 
+X_receive_12 = JML_decode(H11_1, H12_1, H21_1, H22_1, X_odd, X_even, Ncarr); 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%     New detection     %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+H11_2 = C1(1:2:Ncarr) + A2(2:2:Ncarr); H21_2 = C2(1:2:Ncarr) - A1(2:2:Ncarr); 
+H12_2 = C1(2:2:Ncarr) - B2(1:2:Ncarr); H22_2 = C2(2:2:Ncarr) + B1(1:2:Ncarr); 
+ 
+X_receive_21 = ZF_decode(H11_2, H12_2, H21_2, H22_2, X_odd, X_even, Ncarr); 
+X_receive_22 = JML_decode(H11_2, H12_2, H21_2, H22_2, X_odd, X_even, Ncarr); 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%      Demodulate       %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% demodulate the receive symbols 
+X_sink_1 = (1 + sign(real(X_receive_11)))/2;       % BPSK demodulation 
+X_sink_2 = (1 + sign(real(X_receive_21)))/2; 
+ 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%     Error counts      %%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+ 
+% bit error ratio 
+[bit,ratio] = biterr(X_info,X_sink_1);             % Coventional ZF Detection 
+BER_ZF = ratio; 
+[bit,ratio] = biterr(X_info,X_sink_2);             % New ZF Detection 
+BER_ZF_new = ratio; 
+[bit,ratio] = biterr(X_info,X_receive_12);         % Coventional JML Detection 
+BER_JML = ratio; 
+[bit,ratio] = biterr(X_info,X_receive_22);         % New JML Detection 
+BER_JML_new = ratio;
+%}
